@@ -247,25 +247,33 @@ button:disabled {
 .actions .download-box {
   min-height: 60px;
   margin: 0;
+  min-width: 0;
 }
 .actions .download-box {
   display: flex;
   min-width: 0;
+  overflow: hidden;
 }
 .actions .install-app {
   width: 100%;
+  min-width: 0;
   min-height: 60px;
-  padding: 12px 14px;
+  padding: 12px 6px;
   line-height: 1.25;
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
+  white-space: nowrap;
+  font-size: clamp(0.65rem, 2vw, 0.9rem);
 }
 .actions > .danger {
   width: 100%;
-  padding: 12px 14px;
+  min-width: 0;
+  padding: 12px 6px;
   line-height: 1.25;
+  white-space: nowrap;
+  font-size: clamp(0.65rem, 2vw, 0.9rem);
 }
 .grid > .card:nth-child(2) h3 {
   margin: 0 0 10px;
