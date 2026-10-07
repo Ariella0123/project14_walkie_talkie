@@ -1,0 +1,1 @@
+{"users":[],"events":[{"id":1,"type":"user_joined","data":{"user":{"peer":"558d7896f509db4c","nickname":"owo","joined":1791379687,"speaking":false}},"at":1791379687},{"id":2,"type":"user_left","data":{"peer":"558d7896f509db4c"},"at":1791379732}],"sequence":2,"speaker":null,"speakerUntil":0}

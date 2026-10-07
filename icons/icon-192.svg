@@ -1,1 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="42" fill="#09111f"/><circle cx="96" cy="96" r="58" fill="#42c8f5"/><path d="M96 52a44 44 0 0 0-44 44v18a24 24 0 0 0 24 24h8v-42h-16V96a28 28 0 0 1 56 0v14h-16v42h8a24 24 0 0 0 24-24V96a44 44 0 0 0-44-44Z" fill="#09111f"/><circle cx="96" cy="106" r="9" fill="#42c8f5"/></svg>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 192 192"
+>
+  <rect
+    width="192"
+    height="192"
+    rx="42"
+    fill="#09111f"
+  />
+  <circle
+    cx="96"
+    cy="96"
+    r="58"
+    fill="#42c8f5"
+  />
+  <path
+    d="M96 52a44 44 0 0 0-44 44v18a24 24 0 0 0 24 24h8v-42h-16V96a28 28 0 0 1 56 0v14h-16v42h8a24 24 0 0 0 24-24V96a44 44 0 0 0-44-44Z"
+    fill="#09111f"
+  />
+  <circle
+    cx="96"
+    cy="106"
+    r="9"
+    fill="#42c8f5"
+  />
+</svg>
