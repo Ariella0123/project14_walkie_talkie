@@ -133,7 +133,7 @@ if ($path === '/api/join' && $method === 'POST') {
         addEvent($state, 'user_joined', ['user' => $state['users'][$peer]]);
         return true;
     });
-    $_SESSION['walkie'] = ['peer' => $peer, 'nickname' => $nickname, 'room' => $room, 'token' => signedToken($peer, $nickname, $room)];
+    $_SESSION['walkie'] = ['peer' => $peer, 'nickname' => $nickname, 'room' => $room, 'channel' => $room, 'token' => signedToken($peer, $nickname, $room)];
     jsonResponse(['token' => $_SESSION['walkie']['token'], 'peer' => $peer, 'nickname' => $nickname, 'channel' => $room]);
 }
 
