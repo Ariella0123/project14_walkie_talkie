@@ -86,8 +86,38 @@ function addEvent(array &$state, string $type, array $data = []): void {
     $state['events'] = array_slice($state['events'], -200);
 }
 
+if (isset($_GET['asset'])) {
+    $asset = ltrim((string)$_GET['asset'], '/');
+    $allowed = [
+        'app.css' => ['assets/app.css', 'text/css; charset=utf-8'],
+        'app.js' => ['assets/app.js', 'application/javascript; charset=utf-8'],
+        'sw.js' => ['sw.js', 'application/javascript; charset=utf-8'],
+        'manifest.webmanifest' => ['manifest.webmanifest', 'application/manifest+json; charset=utf-8'],
+        'icon-192.svg' => ['icons/icon-192.svg', 'image/svg+xml'],
+        'icon-512.svg' => ['icons/icon-512.svg', 'image/svg+xml'],
+    ];
+    if (!isset($allowed[$asset])) {
+        http_response_code(404);
+        exit('Asset not found');
+    }
+    [$file, $contentType] = $allowed[$asset];
+    $file = ROOT . DIRECTORY_SEPARATOR . $file;
+    if (!is_file($file)) {
+        http_response_code(404);
+        exit('Asset not found');
+    }
+    header('Content-Type: ' . $contentType);
+    header('Cache-Control: public, max-age=3600');
+    readfile($file);
+    exit;
+}
+
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $base = rtrim(env('APP_BASE_PATH', ''), '/');
+if ($base === '') {
+    $scriptDirectory = str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/index.php')));
+    $base = $scriptDirectory === '/' || $scriptDirectory === '.' ? '' : rtrim($scriptDirectory, '/');
+}
 if ($base !== '' && str_starts_with($path, $base)) $path = substr($path, strlen($base)) ?: '/';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
@@ -164,7 +194,7 @@ if ($path === '/assets/app.css') { header('Content-Type: text/css'); readfile(RO
 
 $session = $_SESSION['walkie'] ?? null;
 ?><!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#09111f"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Walkie Talkie"><link rel="apple-touch-icon" href="<?= htmlspecialchars(($base ?: '') . '/icons/icon-192.svg') ?>"><link rel="manifest" href="<?= htmlspecialchars(($base ?: '') . '/manifest.webmanifest') ?>"><link rel="stylesheet" href="<?= htmlspecialchars(($base ?: '') . '/assets/app.css') ?>"><title>Walkie Talkie</title></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#09111f"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Walkie Talkie"><link rel="apple-touch-icon" href="<?= htmlspecialchars(($base ?: '') . '/index.php?asset=icon-192.svg') ?>"><link rel="manifest" href="<?= htmlspecialchars(($base ?: '') . '/index.php?asset=manifest.webmanifest') ?>"><link rel="stylesheet" href="<?= htmlspecialchars(($base ?: '') . '/index.php?asset=app.css') ?>"><title>Walkie Talkie</title></head>
 <body data-session="<?= htmlspecialchars(json_encode($session, JSON_UNESCAPED_SLASHES) ?: 'null') ?>">
-<main id="app"></main><script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script><script src="<?= htmlspecialchars(($base ?: '') . '/assets/app.js') ?>" defer></script>
+<main id="app"></main><script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script><script src="<?= htmlspecialchars(($base ?: '') . '/index.php?asset=app.js') ?>" defer></script>
 </body></html>

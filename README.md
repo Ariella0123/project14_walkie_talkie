@@ -10,6 +10,8 @@
 4. 打开 `http://localhost/project14_walkie_talkie/`。
 5. 两个浏览器使用相同频道名测试，并允许麦克风。
 
+如果线上控制台显示 `app.css`、`app.js` 或 `manifest.webmanifest` 404，请确认整个项目目录已上传（特别是 `assets/`、`icons/` 和 `manifest.webmanifest`），并让网站 Document Root 指向本项目目录。新版入口也提供了 `index.php?asset=...` 回退路径，不依赖 Apache rewrite；部署后可直接测试 `/index.php?asset=app.css`。
+
 生产环境和手机麦克风通常要求 HTTPS。仅使用 STUN 无法保证所有 NAT/企业网络都能连通；生产部署应增加 TURN 服务器，并把 ICE 配置移到服务端生成的配置中。此基础版本为 2–8 人 mesh 音频，人数更多时应改用 SFU。
 
 ## 目录
