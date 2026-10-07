@@ -182,6 +182,7 @@ if (str_starts_with($path, '/api/')) {
     }
     if ($path === '/api/leave' && $method === 'POST') {
         withRoom($room, function (array &$state) use ($peer) { unset($state['users'][$peer]); if ($state['speaker'] === $peer) { $state['speaker'] = null; $state['speakerUntil'] = 0; } addEvent($state, 'user_left', ['peer' => $peer]); return true; });
+        unset($_SESSION['walkie']);
         jsonResponse(['ok' => true]);
     }
     jsonResponse(['error' => 'Not found'], 404);
