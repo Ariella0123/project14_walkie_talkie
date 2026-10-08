@@ -1,7 +1,14 @@
 (() => {
   const root = document.querySelector("#app"),
-    base = document.querySelector("body").dataset.session,
-    session = base ? JSON.parse(base) : null;
+    base = document.querySelector("body").dataset.session;
+  let session = base ? JSON.parse(base) : null;
+  if (!session) {
+    try {
+      session = JSON.parse(sessionStorage.getItem("walkieSession") || "null");
+    } catch {
+      sessionStorage.removeItem("walkieSession");
+    }
+  }
   const esc = (s) =>
     String(s).replace(
       /[&<>"']/g,
@@ -88,6 +95,7 @@
     root.innerHTML = `<section class="join-layout"><div class="card qr-panel">${qrMarkup()}<div class="download-box">${installMarkup()}</div></div><div class="card join-form"><div class="logo">◉ WALKIE TALKIE</div><h1>Push to Talk</h1><p class="muted">Instant voice communication for small teams.</p><form id="join"><label class="field">Nickname<input name="nickname" maxlength="24" required placeholder="Your nickname"></label><label class="field">Channel<input name="channel" maxlength="64" required placeholder="security-team"></label><button type="submit" class="primary">JOIN CHANNEL</button><p class="notice" id="msg"></p></form></div></section>`;
     document.querySelector("#join").onsubmit = async (e) => {
       e.preventDefault();
+      e.stopPropagation();
       const message = document.querySelector("#msg");
       const button = e.target.querySelector("button[type=submit]");
       if (button) button.disabled = true;
@@ -100,7 +108,9 @@
           }),
           d = await r.json().catch(() => ({}));
         if (!r.ok) throw Error(d.error || `Unable to join (${r.status})`);
-        location.reload();
+        session = d;
+        sessionStorage.setItem("walkieSession", JSON.stringify(session));
+        channel();
       } catch (error) {
         message.textContent =
           error instanceof Error
@@ -108,6 +118,7 @@
             : "Unable to connect to the server.";
         if (button) button.disabled = false;
       }
+      return false;
     };
     bindInstallButton();
     renderQr();
@@ -158,6 +169,7 @@
         clearTimeout(pollTimer);
         Object.values(peers).forEach((peer) => peer.close());
         peers = {};
+        sessionStorage.removeItem("walkieSession");
         location.replace(new URL("index.php", document.baseURI).href);
         return;
       }
@@ -279,6 +291,7 @@
         body: JSON.stringify({}),
       });
     } finally {
+      sessionStorage.removeItem("walkieSession");
       location.replace(new URL("index.php", document.baseURI).href);
     }
   }
