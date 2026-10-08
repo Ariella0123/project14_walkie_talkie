@@ -255,6 +255,7 @@
       const audioTrack = stream.getAudioTracks()[0];
       if (!audioTrack) throw Error("No microphone track available");
       audioTrack.enabled = false;
+      document.querySelector("#notice").textContent = "Microphone ready.";
       if (!talkPressActive || requestId !== talkRequestId) return;
       audioTrack.enabled = true;
       speaking = true;
@@ -343,6 +344,14 @@
     peers[peer] = p;
     p.onicecandidate = (e) =>
       e.candidate && sendSignal(peer, { candidate: e.candidate });
+    p.onconnectionstatechange = () => {
+      const notice = document.querySelector("#notice");
+      if (!notice) return;
+      if (p.connectionState === "failed")
+        notice.textContent = "Audio connection failed. Check both devices' network access.";
+      else if (p.connectionState === "connected")
+        notice.textContent = "Audio connection ready.";
+    };
     p.ontrack = (e) => {
       const a = remoteAudio[peer] || new Audio();
       a.autoplay = true;
@@ -350,10 +359,12 @@
       a.srcObject = e.streams[0] || new MediaStream([e.track]);
       remoteAudio[peer] = a;
       document.body.append(a);
-      a.play().catch(() => {
+      const playRemoteAudio = () => a.play().catch(() => {
         const notice = document.querySelector("#notice");
         if (notice) notice.textContent = "Tap the page to enable incoming audio.";
       });
+      e.track.addEventListener("unmute", playRemoteAudio);
+      playRemoteAudio();
     };
     const transceiver = p.addTransceiver("audio", { direction: "sendrecv" });
     if (stream) {
