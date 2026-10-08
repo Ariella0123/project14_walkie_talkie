@@ -24,6 +24,7 @@
   let stream = null,
     peers = {},
     pendingCandidates = {},
+    remoteAudio = {},
     seq = 0,
     speaking = false,
     talkPressActive = false,
@@ -139,6 +140,8 @@
     ptt.onpointerdown = (e) => {
       e.preventDefault();
       ptt.setPointerCapture?.(e.pointerId);
+      audioCtx?.resume?.();
+      Object.values(remoteAudio).forEach((audio) => audio.play().catch(() => {}));
       talkPressActive = true;
       transmit();
     };
@@ -189,6 +192,13 @@
         clearTimeout(pollTimer);
         Object.values(peers).forEach((peer) => peer.close());
         peers = {};
+        Object.values(remoteAudio).forEach((audio) => {
+          audio.pause();
+          audio.srcObject = null;
+        });
+        remoteAudio = {};
+        stream?.getTracks().forEach((track) => track.stop());
+        stream = null;
         sessionStorage.removeItem("walkieSession");
         location.replace(new URL("index.php", document.baseURI).href);
         return;
@@ -233,50 +243,53 @@
   async function transmit() {
     if (!talkPressActive || speaking) return;
     const requestId = ++talkRequestId;
-    const r = await fetch(apiUrl("ptt"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Signal-Token": session.token,
-        },
-        body: JSON.stringify({ action: "request" }),
-      }),
-      d = await r.json();
-    if (!d.granted || !talkPressActive || requestId !== talkRequestId) {
-      if (d.granted) await releaseFloor();
-      if (!talkPressActive && !speaking) resetPtt();
-      if (!d.granted && talkPressActive) {
-        document.querySelector("#notice").textContent = "CHANNEL BUSY";
-        setTimeout(
-          () => (document.querySelector("#notice").textContent = ""),
-          1800,
-        );
-      }
-      return;
-    }
-    speaking = true;
-    document.querySelector("#ptt").classList.add("transmitting");
-    document.querySelector("#ptt").textContent = "TRANSMITTING";
-    document.querySelector("#ptt").setAttribute("aria-pressed", "true");
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      });
+      // Request microphone access directly from the PTT gesture before the
+      // network round trip, which can consume the browser's user activation.
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
+      }
       const audioTrack = stream.getAudioTracks()[0];
       if (!audioTrack) throw Error("No microphone track available");
+      audioTrack.enabled = false;
       if (!talkPressActive || requestId !== talkRequestId) {
-        stream.getTracks().forEach((track) => track.stop());
-        stream = null;
-        speaking = false;
-        await releaseFloor();
-        resetPtt();
         return;
       }
+
+      const r = await fetch(apiUrl("ptt"), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Signal-Token": session.token,
+          },
+          body: JSON.stringify({ action: "request" }),
+        }),
+        d = await r.json();
+      if (!d.granted || !talkPressActive || requestId !== talkRequestId) {
+        if (d.granted) await releaseFloor();
+        if (!talkPressActive && !speaking) resetPtt();
+        if (!d.granted && talkPressActive) {
+          document.querySelector("#notice").textContent = "CHANNEL BUSY";
+          setTimeout(
+            () => (document.querySelector("#notice").textContent = ""),
+            1800,
+          );
+        }
+        return;
+      }
+
+      audioTrack.enabled = true;
+      speaking = true;
+      document.querySelector("#ptt").classList.add("transmitting");
+      document.querySelector("#ptt").textContent = "TRANSMITTING";
+      document.querySelector("#ptt").setAttribute("aria-pressed", "true");
       await Promise.all(
         Object.entries(peers).map(async ([peer, connection]) => {
           const sender = audioSender(connection);
@@ -286,9 +299,12 @@
       );
       monitor(stream);
     } catch (e) {
-      if (talkPressActive)
-        document.querySelector("#notice").textContent =
-          "Microphone permission was denied.";
+      if (talkPressActive) {
+        const denied = e?.name === "NotAllowedError" || e?.name === "PermissionDeniedError";
+        document.querySelector("#notice").textContent = denied
+          ? "Microphone permission was denied."
+          : `Talk failed: ${e?.message || "connection error"}`;
+      }
       release();
     }
   }
@@ -300,15 +316,7 @@
       return;
     }
     speaking = false;
-    const activeStream = stream;
-    stream = null;
-    await Promise.all(
-      Object.values(peers).map(async (connection) => {
-        const sender = audioSender(connection);
-        if (sender) await sender.replaceTrack(null);
-      }),
-    );
-    activeStream?.getTracks().forEach((t) => t.stop());
+    stream?.getAudioTracks().forEach((track) => (track.enabled = false));
     resetPtt();
     await releaseFloor();
   }
@@ -376,9 +384,11 @@
     p.onicecandidate = (e) =>
       e.candidate && sendSignal(peer, { candidate: e.candidate });
     p.ontrack = (e) => {
-      const a = new Audio();
+      const a = remoteAudio[peer] || new Audio();
       a.autoplay = true;
+      a.playsInline = true;
       a.srcObject = e.streams[0] || new MediaStream([e.track]);
+      remoteAudio[peer] = a;
       document.body.append(a);
       a.play().catch(() => {
         const notice = document.querySelector("#notice");
