@@ -327,6 +327,7 @@ if ($path === '/assets/app.css') {
 }
 
 $session = $_SESSION['walkie'] ?? null;
+$assetVersion = (string)@filemtime(ROOT . '/assets/app.css');
 ?>
 <!doctype html>
 <html lang="en">
@@ -348,7 +349,7 @@ $session = $_SESSION['walkie'] ?? null;
         >
         <link
             rel="stylesheet"
-            href="<?= htmlspecialchars(($base ?: '') . '/index.php?asset=app.css') ?>"
+            href="<?= htmlspecialchars(($base ?: '') . '/index.php?asset=app.css&v=' . $assetVersion) ?>"
         >
         <title>Walkie Talkie</title>
     </head>
@@ -356,7 +357,7 @@ $session = $_SESSION['walkie'] ?? null;
         <main id="app"></main>
         <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
         <script
-            src="<?= htmlspecialchars(($base ?: '') . '/index.php?asset=app.js') ?>"
+            src="<?= htmlspecialchars(($base ?: '') . '/index.php?asset=app.js&v=' . $assetVersion) ?>"
             defer
         ></script>
     </body>
