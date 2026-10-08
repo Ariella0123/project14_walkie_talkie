@@ -139,6 +139,13 @@
         },
         body: JSON.stringify({ after: seq }),
       });
+      if (r.status === 410) {
+        clearTimeout(pollTimer);
+        Object.values(peers).forEach((peer) => peer.close());
+        peers = {};
+        location.replace(new URL("index.php", document.baseURI).href);
+        return;
+      }
       if (!r.ok) throw Error(`poll ${r.status}`);
       const d = await r.json();
       seq = d.sequence;

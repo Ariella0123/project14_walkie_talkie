@@ -28,7 +28,7 @@ session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax', 'secure' => 
 session_start();
 
 $storage = ROOT . DIRECTORY_SEPARATOR . 'storage';
-foreach ([$storage, "$storage/rooms", "$storage/logs"] as $dir) {
+foreach ([$storage, "$storage/rooms", "$storage/rooms/.locks", "$storage/logs"] as $dir) {
     if (!is_dir($dir)) {
         mkdir($dir, 0770, true);
     }
@@ -60,6 +60,10 @@ function roomFile(string $room): string
 {
     return ROOT . '/storage/rooms/' . hash('sha256', $room) . '.json';
 }
+function roomLockFile(string $room): string
+{
+    return ROOT . '/storage/rooms/.locks/' . hash('sha256', $room) . '.lock';
+}
 function signedToken(string $peer, string $nickname, string $room): string
 {
     $payload = ['peer' => $peer, 'nickname' => $nickname, 'room' => $room, 'exp' => time() + 86400];
@@ -76,13 +80,26 @@ function tokenData(string $token): ?array
     $data = json_decode(base64_decode(strtr($encoded, '-_', '+/')), true);
     return is_array($data) && ($data['exp'] ?? 0) >= time() ? $data : null;
 }
-function withRoom(string $room, callable $callback): mixed
+function withRoom(string $room, callable $callback, bool $create = false): mixed
 {
-    $handle = fopen(roomFile($room), 'c+');
-    if (!$handle) {
+    $lock = fopen(roomLockFile($room), 'c+');
+    if (!$lock) {
         jsonResponse(['error' => 'Storage unavailable'], 500);
     }
-    flock($handle, LOCK_EX);
+    flock($lock, LOCK_EX);
+    $file = roomFile($room);
+    if (!$create && !is_file($file)) {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+        unset($_SESSION['walkie']);
+        jsonResponse(['error' => 'Room closed'], 410);
+    }
+    $handle = fopen($file, 'c+');
+    if (!$handle) {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+        jsonResponse(['error' => 'Storage unavailable'], 500);
+    }
     $contents = stream_get_contents($handle);
     $state = json_decode($contents ?: '', true);
     if (!is_array($state)) {
@@ -95,7 +112,28 @@ function withRoom(string $room, callable $callback): mixed
     fflush($handle);
     flock($handle, LOCK_UN);
     fclose($handle);
+    $remove = empty($state['users']);
+    if ($remove) {
+        @unlink($file);
+    }
+    flock($lock, LOCK_UN);
+    fclose($lock);
     return $result;
+}
+function pruneInactiveUsers(array &$state, int $now): void
+{
+    $timeout = max(3, (int)env('SIGNAL_PEER_TIMEOUT_SECONDS', '10'));
+    foreach ($state['users'] as $peer => $user) {
+        $lastSeen = (int)($user['lastSeen'] ?? $user['joined'] ?? 0);
+        if ($lastSeen > 0 && $lastSeen < $now - $timeout) {
+            unset($state['users'][$peer]);
+            if ($state['speaker'] === $peer) {
+                $state['speaker'] = null;
+                $state['speakerUntil'] = 0;
+            }
+            addEvent($state, 'user_left', ['peer' => $peer, 'reason' => 'timeout']);
+        }
+    }
 }
 function auth(): array
 {
@@ -161,10 +199,10 @@ if ($path === '/api/join' && $method === 'POST') {
         if (count($state['users']) >= (int)env('SIGNAL_MAX_PEERS', '8')) {
             jsonResponse(['error' => 'This channel is full'], 409);
         }
-        $state['users'][$peer] = ['peer' => $peer, 'nickname' => $nickname, 'joined' => time(), 'speaking' => false];
+        $state['users'][$peer] = ['peer' => $peer, 'nickname' => $nickname, 'joined' => time(), 'lastSeen' => time(), 'speaking' => false];
         addEvent($state, 'user_joined', ['user' => $state['users'][$peer]]);
         return true;
-    });
+    }, true);
     $_SESSION['walkie'] = ['peer' => $peer, 'nickname' => $nickname, 'room' => $room, 'channel' => $room, 'token' => signedToken($peer, $nickname, $room)];
     jsonResponse(['token' => $_SESSION['walkie']['token'], 'peer' => $peer, 'nickname' => $nickname, 'channel' => $room]);
 }
@@ -177,6 +215,12 @@ if (str_starts_with($path, '/api/')) {
         $input = body();
         $after = max(0, (int)($input['after'] ?? 0));
         $result = withRoom($room, function (array &$state) use ($peer, $after) {
+            $nowSeconds = time();
+            pruneInactiveUsers($state, $nowSeconds);
+            if (!isset($state['users'][$peer])) {
+                return ['closed' => true];
+            }
+            $state['users'][$peer]['lastSeen'] = $nowSeconds;
             $now = (int)(microtime(true) * 1000);
             if ($state['speaker'] && $state['speakerUntil'] < $now) {
                 $old = $state['speaker'];
@@ -189,11 +233,18 @@ if (str_starts_with($path, '/api/')) {
             }
             return ['users' => array_values($state['users']), 'speaker' => $state['speaker'], 'sequence' => $state['sequence'], 'events' => array_values(array_filter($state['events'], fn ($event) => $event['id'] > $after))];
         });
+        if (($result['closed'] ?? false) === true) {
+            unset($_SESSION['walkie']);
+            jsonResponse(['error' => 'Room closed'], 410);
+        }
         jsonResponse($result);
     }
     if ($path === '/api/ptt' && $method === 'POST') {
         $action = (string)(body()['action'] ?? '');
         $result = withRoom($room, function (array &$state) use ($peer, $action) {
+            if (!isset($state['users'][$peer])) {
+                return ['closed' => true];
+            }
             $now = (int)(microtime(true) * 1000);
             if ($action === 'request') {
                 if ($state['speaker'] && $state['speaker'] !== $peer && $state['speakerUntil'] > $now) {
@@ -213,6 +264,10 @@ if (str_starts_with($path, '/api/')) {
             }
             return ['granted' => false];
         });
+        if (($result['closed'] ?? false) === true) {
+            unset($_SESSION['walkie']);
+            jsonResponse(['error' => 'Room closed'], 410);
+        }
         jsonResponse($result);
     }
     if ($path === '/api/signal' && $method === 'POST') {
@@ -223,6 +278,9 @@ if (str_starts_with($path, '/api/')) {
             jsonResponse(['error' => 'Invalid signal'], 422);
         }
         withRoom($room, function (array &$state) use ($peer, $to, $signal) {
+            if (!isset($state['users'][$peer], $state['users'][$to])) {
+                return false;
+            }
             addEvent($state, 'signal', ['from' => $peer, 'to' => $to, 'signal' => $signal]);
             return true;
         });
@@ -230,14 +288,17 @@ if (str_starts_with($path, '/api/')) {
     }
     if ($path === '/api/leave' && $method === 'POST') {
         withRoom($room, function (array &$state) use ($peer) {
+            $wasPresent = isset($state['users'][$peer]);
             unset($state['users'][$peer]);
             if ($state['speaker'] === $peer) {
                 $state['speaker'] = null;
                 $state['speakerUntil'] = 0;
             }
-            addEvent($state, 'user_left', ['peer' => $peer]);
+            if ($wasPresent) {
+                addEvent($state, 'user_left', ['peer' => $peer]);
+            }
             return true;
-        });
+        }, false);
         unset($_SESSION['walkie']);
         jsonResponse(['ok' => true]);
     }

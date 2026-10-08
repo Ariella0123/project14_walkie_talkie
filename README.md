@@ -39,5 +39,6 @@
 
 - 麦克风不可用：使用 HTTPS、允许浏览器麦克风权限，确认没有其他应用占用。
 - 房间满：修改 `.env` 的 `SIGNAL_MAX_PEERS`。
+- 房间关闭：所有成员点击离开后，房间 JSON 文件会被删除；如果浏览器异常关闭，服务端会在 `SIGNAL_PEER_TIMEOUT_SECONDS` 秒没有心跳后清除成员，最后一名成员超时后房间也会自动删除。
 - 无法听到对方：检查浏览器控制台、网络防火墙，并配置 TURN。
 - PWA 不安装：必须从 HTTPS 或 localhost 访问，且确认 manifest 与 service worker 可访问。
