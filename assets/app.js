@@ -231,21 +231,17 @@
     document.querySelector("#users").innerHTML = d.users
       .map(
         (u) =>
-          `<li><span>● ${esc(u.nickname)}</span><small>${u.speaking ? "SPEAKING" : "LISTENING"}</small></li>`,
+          `<li><span>● ${esc(u.nickname)}</span><small>${u.peer === session.peer && speaking ? "SPEAKING" : "ONLINE"}</small></li>`,
       )
       .join("");
-    document.querySelector("#speaker").textContent = d.speaker
-      ? d.speaker === session.peer
-        ? "You are transmitting"
-        : `${esc(d.users.find((u) => u.peer === d.speaker)?.nickname || "Someone")} is talking`
-      : "Waiting for a speaker";
+    document.querySelector("#speaker").textContent = speaking
+      ? "You are transmitting. Others can talk at the same time."
+      : "Hold to talk. Everyone can talk at the same time.";
   }
   async function transmit() {
     if (!talkPressActive || speaking) return;
     const requestId = ++talkRequestId;
     try {
-      // Request microphone access directly from the PTT gesture before the
-      // network round trip, which can consume the browser's user activation.
       if (!stream) {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -259,37 +255,14 @@
       const audioTrack = stream.getAudioTracks()[0];
       if (!audioTrack) throw Error("No microphone track available");
       audioTrack.enabled = false;
-      if (!talkPressActive || requestId !== talkRequestId) {
-        return;
-      }
-
-      const r = await fetch(apiUrl("ptt"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Signal-Token": session.token,
-          },
-          body: JSON.stringify({ action: "request" }),
-        }),
-        d = await r.json();
-      if (!d.granted || !talkPressActive || requestId !== talkRequestId) {
-        if (d.granted) await releaseFloor();
-        if (!talkPressActive && !speaking) resetPtt();
-        if (!d.granted && talkPressActive) {
-          document.querySelector("#notice").textContent = "CHANNEL BUSY";
-          setTimeout(
-            () => (document.querySelector("#notice").textContent = ""),
-            1800,
-          );
-        }
-        return;
-      }
-
+      if (!talkPressActive || requestId !== talkRequestId) return;
       audioTrack.enabled = true;
       speaking = true;
       document.querySelector("#ptt").classList.add("transmitting");
       document.querySelector("#ptt").textContent = "TRANSMITTING";
       document.querySelector("#ptt").setAttribute("aria-pressed", "true");
+      document.querySelector("#speaker").textContent =
+        "You are transmitting. Others can talk at the same time.";
       await Promise.all(
         Object.entries(peers).map(async ([peer, connection]) => {
           const sender = audioSender(connection);
@@ -310,31 +283,18 @@
   }
   async function release() {
     talkRequestId++;
-    if (!speaking && !stream) {
-      await releaseFloor();
-      resetPtt();
-      return;
-    }
     speaking = false;
     stream?.getAudioTracks().forEach((track) => (track.enabled = false));
     resetPtt();
-    await releaseFloor();
+    const speaker = document.querySelector("#speaker");
+    if (speaker)
+      speaker.textContent = "Hold to talk. Everyone can talk at the same time.";
   }
   function resetPtt() {
     document.querySelector("#ptt")?.classList.remove("transmitting");
     document.querySelector("#ptt")?.setAttribute("aria-pressed", "false");
     const button = document.querySelector("#ptt");
     if (button) button.textContent = "HOLD TO TALK";
-  }
-  async function releaseFloor() {
-    await fetch(apiUrl("ptt"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Signal-Token": session.token,
-      },
-      body: JSON.stringify({ action: "release" }),
-    });
   }
   async function leave() {
     const button = document.querySelector("#leave");
