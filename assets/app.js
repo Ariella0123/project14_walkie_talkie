@@ -23,6 +23,7 @@
     );
   let stream = null,
     peers = {},
+    pendingCandidates = {},
     seq = 0,
     speaking = false,
     talkPressActive = false,
@@ -279,12 +280,8 @@
       await Promise.all(
         Object.entries(peers).map(async ([peer, connection]) => {
           const sender = audioSender(connection);
-          if (sender) {
-            await sender.replaceTrack(audioTrack);
-          } else {
-            connection.addTrack(audioTrack, stream);
-          }
-          await negotiate(peer, connection);
+          if (!sender) throw Error(`Audio sender unavailable for ${peer}`);
+          await sender.replaceTrack(audioTrack);
         }),
       );
       monitor(stream);
@@ -381,14 +378,18 @@
     p.ontrack = (e) => {
       const a = new Audio();
       a.autoplay = true;
-      a.srcObject = e.streams[0];
+      a.srcObject = e.streams[0] || new MediaStream([e.track]);
       document.body.append(a);
       a.play().catch(() => {
         const notice = document.querySelector("#notice");
         if (notice) notice.textContent = "Tap the page to enable incoming audio.";
       });
     };
-    if (stream) stream.getTracks().forEach((t) => p.addTrack(t, stream));
+    const transceiver = p.addTransceiver("audio", { direction: "sendrecv" });
+    if (stream) {
+      const audioTrack = stream.getAudioTracks()[0];
+      if (audioTrack) transceiver.sender.replaceTrack(audioTrack);
+    }
     return p;
   }
   function audioSender(connection) {
@@ -396,7 +397,8 @@
       connection.getSenders().find((item) => item.track?.kind === "audio") ||
       connection
         .getTransceivers()
-        .find((item) => item.receiver.track?.kind === "audio")?.sender
+        .find((item) => item.receiver.track?.kind === "audio")?.sender ||
+      connection.getTransceivers()[0]?.sender
     );
   }
   async function initiatePeer(peer) {
@@ -406,23 +408,26 @@
     await p.setLocalDescription(offer);
     sendSignal(peer, { description: p.localDescription });
   }
-  async function negotiate(peer, connection) {
-    if (connection.signalingState !== "stable") return;
-    const offer = await connection.createOffer();
-    await connection.setLocalDescription(offer);
-    sendSignal(peer, { description: connection.localDescription });
-  }
   async function handleSignal(x) {
     const p = createPeer(x.from);
     if (x.signal.description) {
       await p.setRemoteDescription(x.signal.description);
+      const candidates = pendingCandidates[x.from] || [];
+      delete pendingCandidates[x.from];
+      for (const candidate of candidates) await p.addIceCandidate(candidate);
       if (x.signal.description.type === "offer") {
         const answer = await p.createAnswer();
         await p.setLocalDescription(answer);
         sendSignal(x.from, { description: p.localDescription });
       }
     }
-    if (x.signal.candidate) await p.addIceCandidate(x.signal.candidate);
+    if (x.signal.candidate) {
+      if (p.remoteDescription) {
+        await p.addIceCandidate(x.signal.candidate);
+      } else {
+        (pendingCandidates[x.from] ||= []).push(x.signal.candidate);
+      }
+    }
   }
   function sendSignal(to, signal) {
     fetch(apiUrl("signal"), {
