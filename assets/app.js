@@ -38,6 +38,11 @@
       .querySelectorAll(".install-app")
       .forEach((button) => (button.hidden = false));
   }
+  function apiUrl(endpoint) {
+    const url = new URL("index.php", document.baseURI);
+    url.searchParams.set("route", `/api/${endpoint}`);
+    return url.href;
+  }
   async function installApp() {
     if (deferredInstall) {
       deferredInstall.prompt();
@@ -80,19 +85,29 @@
     });
   }
   function join() {
-    root.innerHTML = `<section class="join-layout"><div class="card qr-panel">${qrMarkup()}<div class="download-box">${installMarkup()}</div></div><div class="card join-form"><div class="logo">◉ WALKIE TALKIE</div><h1>Push to Talk</h1><p class="muted">Instant voice communication for small teams.</p><form id="join"><label class="field">Nickname<input name="nickname" maxlength="24" required placeholder="Your nickname"></label><label class="field">Channel<input name="channel" maxlength="64" required placeholder="security-team"></label><button class="primary">JOIN CHANNEL</button><p class="notice" id="msg"></p></form></div></section>`;
+    root.innerHTML = `<section class="join-layout"><div class="card qr-panel">${qrMarkup()}<div class="download-box">${installMarkup()}</div></div><div class="card join-form"><div class="logo">◉ WALKIE TALKIE</div><h1>Push to Talk</h1><p class="muted">Instant voice communication for small teams.</p><form id="join"><label class="field">Nickname<input name="nickname" maxlength="24" required placeholder="Your nickname"></label><label class="field">Channel<input name="channel" maxlength="64" required placeholder="security-team"></label><button type="submit" class="primary">JOIN CHANNEL</button><p class="notice" id="msg"></p></form></div></section>`;
     document.querySelector("#join").onsubmit = async (e) => {
       e.preventDefault();
-      const r = await fetch("api/join", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(Object.fromEntries(new FormData(e.target))),
-        }),
-        d = await r.json();
-      if (!r.ok)
-        return (document.querySelector("#msg").textContent =
-          d.error || "Unable to join");
-      location.reload();
+      const message = document.querySelector("#msg");
+      const button = e.target.querySelector("button[type=submit]");
+      if (button) button.disabled = true;
+      message.textContent = "Joining channel...";
+      try {
+        const r = await fetch(apiUrl("join"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(Object.fromEntries(new FormData(e.target))),
+          }),
+          d = await r.json().catch(() => ({}));
+        if (!r.ok) throw Error(d.error || `Unable to join (${r.status})`);
+        location.reload();
+      } catch (error) {
+        message.textContent =
+          error instanceof Error
+            ? error.message
+            : "Unable to connect to the server.";
+        if (button) button.disabled = false;
+      }
     };
     bindInstallButton();
     renderQr();
@@ -131,7 +146,7 @@
   }
   async function poll() {
     try {
-      const r = await fetch("api/poll", {
+      const r = await fetch(apiUrl("poll"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -147,7 +162,7 @@
         return;
       }
       if (!r.ok) throw Error(`poll ${r.status}`);
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       seq = d.sequence;
       document.querySelector("#status").textContent = "CONNECTED";
       render(d);
@@ -185,7 +200,7 @@
   }
   async function transmit() {
     if (speaking) return;
-    const r = await fetch("api/ptt", {
+    const r = await fetch(apiUrl("ptt"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -235,7 +250,7 @@
     document.querySelector("#ptt")?.classList.remove("transmitting");
     document.querySelector("#ptt").textContent = "HOLD TO TALK";
     document.querySelector("#ptt").setAttribute("aria-pressed", "false");
-    await fetch("api/ptt", {
+    await fetch(apiUrl("ptt"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -255,7 +270,7 @@
     peers = {};
     await release();
     try {
-      await fetch("api/leave", {
+      await fetch(apiUrl("leave"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -319,7 +334,7 @@
     if (x.signal.candidate) await p.addIceCandidate(x.signal.candidate);
   }
   function sendSignal(to, signal) {
-    fetch("api/signal", {
+    fetch(apiUrl("signal"), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -333,7 +348,7 @@
   window.addEventListener("beforeunload", () => {
     if (session)
       navigator.sendBeacon?.(
-        "api/leave",
+        apiUrl("leave"),
         new Blob([JSON.stringify({})], { type: "application/json" }),
       );
   });

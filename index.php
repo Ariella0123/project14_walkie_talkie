@@ -177,6 +177,10 @@ if (isset($_GET['asset'])) {
 }
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$route = (string)($_GET['route'] ?? '');
+if ($route !== '') {
+    $path = '/' . ltrim($route, '/');
+}
 $base = rtrim(env('APP_BASE_PATH', ''), '/');
 if ($base === '') {
     $scriptDirectory = str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/index.php')));
@@ -327,7 +331,10 @@ if ($path === '/assets/app.css') {
 }
 
 $session = $_SESSION['walkie'] ?? null;
-$assetVersion = (string)@filemtime(ROOT . '/assets/app.css');
+$assetVersion = (string)max(
+    (int)@filemtime(ROOT . '/assets/app.css'),
+    (int)@filemtime(ROOT . '/assets/app.js'),
+);
 ?>
 <!doctype html>
 <html lang="en">
