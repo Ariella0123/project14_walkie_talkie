@@ -1,1 +1,1 @@
-{"users":[],"events":[{"id":1,"type":"user_left","data":{"peer":"6d5cf3ec8160d9c7"},"at":1791426976}],"sequence":1,"speaker":null,"speakerUntil":0}
+{"users":{"12085d8e216daa3e":{"peer":"12085d8e216daa3e","nickname":"awa","joined":1791428604,"lastSeen":1791428941,"speaking":false}},"events":[{"id":1,"type":"user_joined","data":{"user":{"peer":"12085d8e216daa3e","nickname":"awa","joined":1791428604,"lastSeen":1791428604,"speaking":false}},"at":1791428604}],"sequence":1,"speaker":null,"speakerUntil":0}
