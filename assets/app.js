@@ -25,6 +25,8 @@
     peers = {},
     seq = 0,
     speaking = false,
+    talkPressActive = false,
+    talkRequestId = 0,
     pollTimer = null,
     audioCtx,
     analyser;
@@ -132,21 +134,38 @@
   function channel() {
     const channelName = session.channel || session.room || "unknown";
     root.innerHTML = `<section><div class="top"><div><div class="logo">◉ WALKIE TALKIE</div><h2># ${esc(channelName)}</h2></div><span id="status" class="status">CONNECTING</span></div><div class="grid"><div class="card"><p id="speaker" class="muted">Waiting for a speaker</p><button id="ptt" class="ptt" aria-pressed="false">HOLD TO TALK</button><p id="notice" class="notice">Microphone permission is required to talk.</p><div class="meter"><i id="meter"></i></div><div class="actions"><button id="leave" class="danger">LEAVE CHANNEL</button><div class="download-box">${installMarkup()}</div></div></div><div class="card"><h3>ON THIS CHANNEL <small id="count"></small></h3><ul id="users" class="participants"></ul></div></div></section>`;
-    document.querySelector("#ptt").onpointerdown = transmit;
-    document.querySelector("#ptt").onpointerup = release;
-    document.querySelector("#ptt").onpointercancel = release;
-    document.querySelector("#ptt").onpointerleave = (e) => {
-      if (e.buttons) release();
+    const ptt = document.querySelector("#ptt");
+    ptt.onpointerdown = (e) => {
+      e.preventDefault();
+      ptt.setPointerCapture?.(e.pointerId);
+      talkPressActive = true;
+      transmit();
     };
+    ptt.onpointerup = (e) => {
+      e.preventDefault();
+      talkPressActive = false;
+      release();
+    };
+    ptt.onpointercancel = () => {
+      talkPressActive = false;
+      release();
+    };
+    ptt.onlostpointercapture = () => {
+      talkPressActive = false;
+      release();
+    };
+    ptt.onclick = (e) => e.preventDefault();
     document.addEventListener("keydown", (e) => {
       if (e.code === "Space" && !e.repeat) {
         e.preventDefault();
+        talkPressActive = true;
         transmit();
       }
     });
     document.addEventListener("keyup", (e) => {
       if (e.code === "Space") {
         e.preventDefault();
+        talkPressActive = false;
         release();
       }
     });
@@ -211,7 +230,8 @@
       : "Waiting for a speaker";
   }
   async function transmit() {
-    if (speaking) return;
+    if (!talkPressActive || speaking) return;
+    const requestId = ++talkRequestId;
     const r = await fetch(apiUrl("ptt"), {
         method: "POST",
         headers: {
@@ -221,12 +241,16 @@
         body: JSON.stringify({ action: "request" }),
       }),
       d = await r.json();
-    if (!d.granted) {
-      document.querySelector("#notice").textContent = "CHANNEL BUSY";
-      setTimeout(
-        () => (document.querySelector("#notice").textContent = ""),
-        1800,
-      );
+    if (!d.granted || !talkPressActive || requestId !== talkRequestId) {
+      if (d.granted) await releaseFloor();
+      if (!talkPressActive && !speaking) resetPtt();
+      if (!d.granted && talkPressActive) {
+        document.querySelector("#notice").textContent = "CHANNEL BUSY";
+        setTimeout(
+          () => (document.querySelector("#notice").textContent = ""),
+          1800,
+        );
+      }
       return;
     }
     speaking = true;
@@ -244,6 +268,14 @@
       });
       const audioTrack = stream.getAudioTracks()[0];
       if (!audioTrack) throw Error("No microphone track available");
+      if (!talkPressActive || requestId !== talkRequestId) {
+        stream.getTracks().forEach((track) => track.stop());
+        stream = null;
+        speaking = false;
+        await releaseFloor();
+        resetPtt();
+        return;
+      }
       await Promise.all(
         Object.entries(peers).map(async ([peer, connection]) => {
           const sender = audioSender(connection);
@@ -257,13 +289,19 @@
       );
       monitor(stream);
     } catch (e) {
-      document.querySelector("#notice").textContent =
-        "Microphone permission was denied.";
+      if (talkPressActive)
+        document.querySelector("#notice").textContent =
+          "Microphone permission was denied.";
       release();
     }
   }
   async function release() {
-    if (!speaking) return;
+    talkRequestId++;
+    if (!speaking && !stream) {
+      await releaseFloor();
+      resetPtt();
+      return;
+    }
     speaking = false;
     const activeStream = stream;
     stream = null;
@@ -274,9 +312,16 @@
       }),
     );
     activeStream?.getTracks().forEach((t) => t.stop());
+    resetPtt();
+    await releaseFloor();
+  }
+  function resetPtt() {
     document.querySelector("#ptt")?.classList.remove("transmitting");
-    document.querySelector("#ptt").textContent = "HOLD TO TALK";
-    document.querySelector("#ptt").setAttribute("aria-pressed", "false");
+    document.querySelector("#ptt")?.setAttribute("aria-pressed", "false");
+    const button = document.querySelector("#ptt");
+    if (button) button.textContent = "HOLD TO TALK";
+  }
+  async function releaseFloor() {
     await fetch(apiUrl("ptt"), {
       method: "POST",
       headers: {

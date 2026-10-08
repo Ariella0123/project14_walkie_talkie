@@ -192,6 +192,8 @@ button:disabled {
   margin: auto;
   display: block;
   flex: none;
+  touch-action: none;
+  user-select: none;
 }
 .ptt.transmitting {
   background: #35d49a;
