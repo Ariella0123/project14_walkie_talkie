@@ -242,11 +242,19 @@
         },
         video: false,
       });
-      stream
-        .getTracks()
-        .forEach((t) =>
-          Object.values(peers).forEach((p) => p.addTrack(t, stream)),
-        );
+      const audioTrack = stream.getAudioTracks()[0];
+      if (!audioTrack) throw Error("No microphone track available");
+      await Promise.all(
+        Object.entries(peers).map(async ([peer, connection]) => {
+          const sender = audioSender(connection);
+          if (sender) {
+            await sender.replaceTrack(audioTrack);
+          } else {
+            connection.addTrack(audioTrack, stream);
+          }
+          await negotiate(peer, connection);
+        }),
+      );
       monitor(stream);
     } catch (e) {
       document.querySelector("#notice").textContent =
@@ -257,8 +265,15 @@
   async function release() {
     if (!speaking) return;
     speaking = false;
-    stream?.getTracks().forEach((t) => t.stop());
+    const activeStream = stream;
     stream = null;
+    await Promise.all(
+      Object.values(peers).map(async (connection) => {
+        const sender = audioSender(connection);
+        if (sender) await sender.replaceTrack(null);
+      }),
+    );
+    activeStream?.getTracks().forEach((t) => t.stop());
     document.querySelector("#ptt")?.classList.remove("transmitting");
     document.querySelector("#ptt").textContent = "HOLD TO TALK";
     document.querySelector("#ptt").setAttribute("aria-pressed", "false");
@@ -323,9 +338,21 @@
       a.autoplay = true;
       a.srcObject = e.streams[0];
       document.body.append(a);
+      a.play().catch(() => {
+        const notice = document.querySelector("#notice");
+        if (notice) notice.textContent = "Tap the page to enable incoming audio.";
+      });
     };
     if (stream) stream.getTracks().forEach((t) => p.addTrack(t, stream));
     return p;
+  }
+  function audioSender(connection) {
+    return (
+      connection.getSenders().find((item) => item.track?.kind === "audio") ||
+      connection
+        .getTransceivers()
+        .find((item) => item.receiver.track?.kind === "audio")?.sender
+    );
   }
   async function initiatePeer(peer) {
     if (session.peer > peer) return;
@@ -333,6 +360,12 @@
     const offer = await p.createOffer();
     await p.setLocalDescription(offer);
     sendSignal(peer, { description: p.localDescription });
+  }
+  async function negotiate(peer, connection) {
+    if (connection.signalingState !== "stable") return;
+    const offer = await connection.createOffer();
+    await connection.setLocalDescription(offer);
+    sendSignal(peer, { description: connection.localDescription });
   }
   async function handleSignal(x) {
     const p = createPeer(x.from);
